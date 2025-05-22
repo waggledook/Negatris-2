@@ -823,12 +823,9 @@ function resizeCanvas() {
     const step = Math.round(gameWidth * 0.09); // 9% of game width
     activeWord.x += dx * step;
   
-    // Wrap around: if you go off one edge, appear on the other
-    if (activeWord.x < -activeWord.width) {
-      activeWord.x = gameWidth;
-    } else if (activeWord.x > gameWidth) {
-      activeWord.x = -activeWord.width;
-    }
+    // seamless horizontal wrap (preserves any overshoot)
+    const total = gameWidth + activeWord.width;
+    activeWord.x = ((activeWord.x + activeWord.width) % total + total) % total - activeWord.width;
   }
   
   let touchStartX = null;
