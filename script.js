@@ -1,3 +1,5 @@
+
+
 let score = 0;
 let lives = 3;
 let correctStreak = 0;
@@ -8,7 +10,7 @@ let lastTimestamp = null;     // for delta-time
 let gameLoopId = null;        // requestAnimationFrame handle
 let wordSpawner = null;
 
-
+const mistakes = [];
 
 const wordToPrefix = {
     "responsible": "ir-",
@@ -68,7 +70,25 @@ const wordToPrefix = {
     "competent": "in-"
   };
 
+// ——————————————————————————
+// Utility to dynamically load external scripts
+// ——————————————————————————
+function loadScript(src, callback) {
+  const script = document.createElement('script');
+  script.src = src;
+  script.onload = () => callback && callback();
+  script.onerror = () => console.error(`Failed to load ${src}`);
+  document.head.appendChild(script);
+}
 
+  function loadReportLibs(cb) {
+    loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js", () => {
+      loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js", cb);
+    });
+  }
+  
+  // call at startup
+  loadReportLibs(() => console.log("jsPDF + AutoTable ready"));
 
 
 // show the start screen overlay
@@ -317,10 +337,13 @@ function gameOver() {
       <h2>Top Scores</h2>
       ${getHighScoresHTML()}
     </section>
+    <button id="downloadReport" style="margin-top:1em; margin-bottom:1em;">Download Report</button>
     <button id="restart-btn">Play Again</button>
   `;
   wrapper.appendChild(overlay);
-
+  document
+  .getElementById("downloadReport")
+  .addEventListener("click", generateReport);
   // restart handler
   document.getElementById('restart-btn').addEventListener('click', () => {
     wrapper.removeChild(overlay);
@@ -383,25 +406,38 @@ class FallingWord {
     ctx.restore();
   }
   
-    checkBucketCollision() {
-        // 1) center of the word in your logical canvas coords
-        const wordCenterX = this.x + this.width / 2;
-      
-        // 2) how many buckets do we have?
-        const bucketCount = this.buckets.length;
-      
-        // 3) each bucket’s zone width in logical pixels
-        const zoneWidth = gameWidth / bucketCount;
-      
-        // 4) pick the index [0…bucketCount-1]
-        let idx = Math.floor(wordCenterX / zoneWidth);
-        idx = Math.max(0, Math.min(bucketCount - 1, idx));
-      
-        // 5) test prefix
-        const chosenPrefix = this.buckets[idx].dataset.prefix;
-        const correct      = wordToPrefix[this.text] === chosenPrefix;
-        handleResult(correct, this.text, chosenPrefix);
-      }
+  checkBucketCollision() {
+    // 1) center of the word in your logical canvas coords
+    const wordCenterX = this.x + this.width / 2;
+  
+    // 2) how many buckets do we have?
+    const bucketCount = this.buckets.length;
+  
+    // 3) each bucket’s zone width in logical pixels
+    const zoneWidth = gameWidth / bucketCount;
+  
+    // 4) pick the index [0…bucketCount-1]
+    let idx = Math.floor(wordCenterX / zoneWidth);
+    idx = Math.max(0, Math.min(bucketCount - 1, idx));
+  
+    // 5) test prefix
+    const chosenPrefix = this.buckets[idx].dataset.prefix;
+    const correctPrefix = wordToPrefix[this.text];
+    const correct = chosenPrefix === correctPrefix;
+  
+    // 6) record any mistakes for the PDF report
+    if (!correct) {
+      mistakes.push({
+        word: this.text,
+        chosen: chosenPrefix,
+        correct: correctPrefix,
+        timestamp: Date.now()
+      });
+    }
+  
+    // 7) hand off to your existing scoring / lives logic
+    handleResult(correct, this.text, chosenPrefix);
+  }
     }
       
 // Dynamically inject CSS
@@ -862,6 +898,39 @@ function updateScoreDisplay() {
   
     // 4) Size the canvas container
     resizeCanvas();
+}
+
+function generateReport() {
+  if (!window.jspdf?.jsPDF) {
+    return alert("Report library not loaded yet.");
+  }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  // Title
+  doc.setFontSize(16);
+  doc.text("Negatris – Mistakes Report", 14, 20);
+
+  // Build rows
+  const rows = mistakes.map((m, i) => [
+    i + 1,
+    m.word,
+    m.chosen,
+    m.correct,
+    m.chosen === m.correct ? "✔︎" : "✘"
+  ]);
+
+  // AutoTable
+  doc.autoTable({
+    startY: 30,
+    head: [["#", "Word", "Chosen Bucket", "Correct Bucket", "Result"]],
+    body: rows,
+    headStyles: { fillColor: [40, 120, 200], textColor: 255 },
+    styles: { fontSize: 10, cellPadding: 3, overflow: "linebreak" },
+    columnStyles: { 4: { halign: "center" } }
+  });
+
+  doc.save("negatris_mistakes_report.pdf");
 }
 
 
